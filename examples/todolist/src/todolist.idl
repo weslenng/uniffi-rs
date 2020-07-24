@@ -5,10 +5,16 @@ dictionary TodoEntry {
     string text;
 };
 
+enum Error {
+    "NetworkError", "TypeError", "NoTodoError"
+};
+
 interface TodoList {
     constructor();
+    [Throws=Error]
     void add_item(string todo);
     void add_entry(TodoEntry entry);
     TodoEntry get_last_entry();
+    [Throws=Error]
     string get_last();
 };

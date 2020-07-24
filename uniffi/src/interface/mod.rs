@@ -76,6 +76,7 @@ pub struct ComponentInterface {
     records: Vec<Record>,
     functions: Vec<Function>,
     objects: Vec<Object>,
+    error: Option<Enum>,
 }
 
 impl<'ci> ComponentInterface {
@@ -198,6 +199,10 @@ impl<'ci> ComponentInterface {
             .collect()
     }
 
+    pub fn error(&self) -> &Option<Enum> {
+        &self.error
+    }
+
     //
     // Private methods for building a ComponentInterface.
     //
@@ -248,6 +253,11 @@ impl<'ci> ComponentInterface {
         Ok(())
     }
 
+    fn add_error_definition(&mut self, defn: Enum) -> Result<()> {
+        self.error = Some(defn);
+        Ok(())
+    }
+
     fn derive_ffi_funcs(&mut self) -> Result<()> {
         let ci_prefix = self.namespace().to_string();
         for func in self.functions.iter_mut() {
@@ -294,7 +304,18 @@ impl APIBuilder for weedle::Definition<'_> {
     fn process(&self, ci: &mut ComponentInterface) -> Result<()> {
         match self {
             weedle::Definition::Namespace(d) => d.process(ci),
-            weedle::Definition::Enum(d) => ci.add_enum_definition(d.convert(ci)?),
+            weedle::Definition::Enum(d) => {
+                // Hacky way for now!
+                // can probably use an attribute or something
+                // to differntiate errors...
+                // that will allow us to have more than one `Error` enum
+                // Which can add flexibility to the consumer
+                if d.identifier.0 == "Error" {
+                    ci.add_error_definition(d.convert(ci)?)
+                } else {
+                    ci.add_enum_definition(d.convert(ci)?)
+                }
+            }
             weedle::Definition::Dictionary(d) => ci.add_record_definition(d.convert(ci)?),
             weedle::Definition::Interface(d) => ci.add_object_definition(d.convert(ci)?),
             _ => bail!("don't know how to deal with {:?}", self),
@@ -466,6 +487,17 @@ impl APIConverter<Argument> for weedle::argument::SingleArgument<'_> {
     }
 }
 
+impl APIConverter<Error> for weedle::common::Identifier<'_> {
+    fn convert(&self, ci: &ComponentInterface) -> Result<Error> {
+        Ok(Error {
+            name: self.0.to_string(),
+            type_: ci
+                .get_type_definition(self.0)
+                .ok_or_else(|| anyhow::format_err!("Errors must be typed"))?,
+        })
+    }
+}
+
 // Represents a simple C-style enum.
 // In the FFI these are turned into a simple u32.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -582,6 +614,12 @@ impl Constructor {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Error {
+    name: String,
+    type_: TypeReference,
+}
+
 // Represents an instance method for an object type.
 //
 // The in FFI, this will be a function whose first argument is a handle for an
@@ -592,6 +630,7 @@ pub struct Method {
     return_type: Option<TypeReference>,
     arguments: Vec<Argument>,
     ffi_func: FFIFunction,
+    throws: Option<Error>,
 }
 
 impl Method {
@@ -618,6 +657,10 @@ impl Method {
             optional: false,
             default: None,
         }
+    }
+
+    pub fn error(&self) -> &Option<Error> {
+        &self.throws
     }
 
     fn derive_ffi_func(&mut self, ci_prefix: &str, obj_prefix: &str) -> Result<()> {
@@ -679,9 +722,9 @@ impl APIConverter<Constructor> for weedle::interface::ConstructorInterfaceMember
 
 impl APIConverter<Method> for weedle::interface::OperationInterfaceMember<'_> {
     fn convert(&self, ci: &ComponentInterface) -> Result<Method> {
-        if self.attributes.is_some() {
-            bail!("no interface member attributes supported yet");
-        }
+        // if self.attributes.is_some() {
+        //     bail!("no interface member attributes supported yet");
+        // }
         if self.special.is_some() {
             bail!("special operations not supported");
         }
@@ -699,7 +742,47 @@ impl APIConverter<Method> for weedle::interface::OperationInterfaceMember<'_> {
                 weedle::types::ReturnType::Type(t) => Some(t.resolve_type_definition(ci)?),
             },
             ffi_func: Default::default(),
+            throws: match &self.attributes {
+                Some(attr) => attr.body.list.find_throws(ci)?,
+                None => None,
+            },
         })
+    }
+}
+
+trait FindThrows {
+    fn find_throws(&self, ci: &ComponentInterface) -> Result<Option<Error>>;
+}
+
+impl<U: FindThrows> FindThrows for Vec<U> {
+    fn find_throws(&self, ci: &ComponentInterface) -> Result<Option<Error>> {
+        for v in self {
+            let throws = v.find_throws(ci)?;
+            if throws.is_some() {
+                return Ok(throws);
+            }
+        }
+        Ok(None)
+    }
+}
+
+impl FindThrows for weedle::attribute::ExtendedAttribute<'_> {
+    fn find_throws(&self, ci: &ComponentInterface) -> Result<Option<Error>> {
+        match self {
+            Self::Ident(inner) => {
+                if inner.lhs_identifier.0 == "Throws" {
+                    match inner.rhs {
+                        weedle::attribute::IdentifierOrString::Identifier(inner) => {
+                            Ok(Some(inner.convert(ci)?))
+                        }
+                        _ => Ok(None),
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => Ok(None),
+        }
     }
 }
 

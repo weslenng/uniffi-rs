@@ -7,6 +7,10 @@
 // enough to include anyways since strings are such a common use case.
 ffi_support::define_string_destructor!({{ ci.ffi_string_free().name() }});
 
+// We generate error mappings into ffi_support::ExternErrors
+// so that the errors can propagate through the FFI
+{% include "ErrorTemplate.rs" %}
+
 // For each enum declared in the IDL, we assume the caller as provided a corresponding
 // rust `enum`. We provide the traits for sending it across the FFI, which will fail to
 // compile if the provided struct has a different shape to the one declared in the IDL.

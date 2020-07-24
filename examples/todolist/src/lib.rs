@@ -7,6 +7,18 @@ struct TodoEntry {
     text: String,
 }
 
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("Error came from the network")]
+    NetworkError,
+    #[error("Error doing a type conversion")]
+    TypeError,
+    #[error("No todo error!")]
+    NoTodoError,
+}
+
+type Result<T, E = Error> = std::result::Result<T, E>;
+
 // I am a simple Todolist
 #[derive(Debug, Clone)]
 struct TodoList {
@@ -18,12 +30,13 @@ impl TodoList {
         Self { items: Vec::new() }
     }
 
-    fn add_item<S: Into<String>>(&mut self, item: S) {
-        self.items.push(item.into())
+    fn add_item<S: Into<String>>(&mut self, item: S) -> Result<()> {
+        self.items.push(item.into());
+        Ok(())
     }
 
-    fn get_last(&self) -> String {
-        self.items.last().cloned().unwrap()
+    fn get_last(&self) -> Result<String> {
+        self.items.last().cloned().ok_or_else(|| Error::NoTodoError)
     }
 
     fn add_entry(&mut self, entry: TodoEntry) {

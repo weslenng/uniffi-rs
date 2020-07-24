@@ -40,9 +40,9 @@ lazy_static::lazy_static! {
         let mut err: ffi_support::ExternError = Default::default(); // XXX TODO: error handling!
         // If the method does not have the same signature as declared in the IDL, then
         // this attempt to call it will fail with a (somewhat) helpful compiler error.
-        UNIFFI_HANDLE_MAP_{{ obj.name()|upper }}.call_with_output_mut(&mut err, {{ meth.first_argument().name() }}, |obj| {
-            let _retval = {{ obj.name() }}::{%- call rs::to_rs_call_with_prefix("obj", meth) -%};
-            {% match meth.return_type() %}{% when Some with (return_type) %}{{ "_retval"|lower_rs(return_type) }}{% else %}{% endmatch %}
+        UNIFFI_HANDLE_MAP_{{ obj.name()|upper }}.{% match meth.error() %}{% when Some with (e) %}call_with_result_mut{% else %}call_with_output_mut{% endmatch %}(&mut err, {{ meth.first_argument().name() }}, |obj| {% match meth.error() %}{% when Some with (e) %}-> Result<{% match meth.ffi_func().return_type() %}{% when Some with (return_type) %}{{ return_type|ret_type_c }}{% else %}(){% endmatch %}>{% else %}{% endmatch %}{
+            let _retval = {{ obj.name() }}::{%- call rs::to_rs_call_with_prefix("obj", meth) -%}{% match meth.error() %}{% when Some with (e) %}?{% else %}{% endmatch %};
+            {% match meth.error() %}{% when Some with (e) %}Ok({% else %}{% endmatch %}{% match meth.return_type() %}{% when Some with (return_type) %}{{ "_retval"|lower_rs(return_type) }}{% else %}_retval{% endmatch %}{% match meth.error() %}{% when Some with (e) %}){% else %}{% endmatch%}
         })
     }
 {% endfor %}
