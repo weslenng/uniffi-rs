@@ -8,16 +8,20 @@ struct TodoEntry {
 }
 
 #[derive(Debug, thiserror::Error)]
-enum Error {
+enum AddItemError {
     #[error("Error came from the network")]
     NetworkError,
     #[error("Error doing a type conversion")]
     TypeError,
-    #[error("No todo error!")]
-    NoTodoError,
 }
 
-type Result<T, E = Error> = std::result::Result<T, E>;
+#[derive(Debug, thiserror::Error)]
+enum GetLastError {
+    #[error("No todo error!")]
+    NoTodoError,
+    #[error("Unknown error, whoops")]
+    UnknownError,
+}
 
 // I am a simple Todolist
 #[derive(Debug, Clone)]
@@ -30,13 +34,16 @@ impl TodoList {
         Self { items: Vec::new() }
     }
 
-    fn add_item<S: Into<String>>(&mut self, item: S) -> Result<()> {
+    fn add_item<S: Into<String>>(&mut self, item: S) -> Result<(), AddItemError> {
         self.items.push(item.into());
         Ok(())
     }
 
-    fn get_last(&self) -> Result<String> {
-        self.items.last().cloned().ok_or_else(|| Error::NoTodoError)
+    fn get_last(&self) -> Result<String, GetLastError> {
+        self.items
+            .last()
+            .cloned()
+            .ok_or_else(|| GetLastError::NoTodoError)
     }
 
     fn add_entry(&mut self, entry: TodoEntry) {

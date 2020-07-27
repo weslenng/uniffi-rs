@@ -49,7 +49,7 @@
 //!   * Error messages leave a lot to be desired (and we currently panc on errors parsing the WebIDL).
 //!     If this were to be a real thing we'd need to invest in more empathetic error messages.
 
-use std::{collections::hash_map::Entry, collections::HashMap, str::FromStr};
+use std::{collections::hash_map::Entry, collections::HashMap, convert::TryFrom, str::FromStr};
 
 use anyhow::bail;
 use anyhow::Result;
@@ -76,7 +76,7 @@ pub struct ComponentInterface {
     records: Vec<Record>,
     functions: Vec<Function>,
     objects: Vec<Object>,
-    error: Option<Enum>,
+    errors: Vec<Error>,
 }
 
 impl<'ci> ComponentInterface {
@@ -135,6 +135,10 @@ impl<'ci> ComponentInterface {
 
     pub fn iter_object_definitions(&self) -> Vec<Object> {
         self.objects.to_vec()
+    }
+
+    pub fn iter_error_definitions(&self) -> Vec<Error> {
+        self.errors.to_vec()
     }
 
     pub fn ffi_bytebuffer_alloc(&self) -> FFIFunction {
@@ -199,10 +203,6 @@ impl<'ci> ComponentInterface {
             .collect()
     }
 
-    pub fn error(&self) -> &Option<Enum> {
-        &self.error
-    }
-
     //
     // Private methods for building a ComponentInterface.
     //
@@ -253,8 +253,12 @@ impl<'ci> ComponentInterface {
         Ok(())
     }
 
-    fn add_error_definition(&mut self, defn: Enum) -> Result<()> {
-        self.error = Some(defn);
+    fn add_error_definition(&mut self, defn: Error) -> Result<()> {
+        // TODO: Optimize this to do constant time lookups (a set of errors might work)
+        if self.errors.iter().find(|e| e.name == defn.name).is_some() {
+            anyhow::bail!("Two errors with the same name")
+        }
+        self.errors.push(defn);
         Ok(())
     }
 
@@ -305,21 +309,56 @@ impl APIBuilder for weedle::Definition<'_> {
         match self {
             weedle::Definition::Namespace(d) => d.process(ci),
             weedle::Definition::Enum(d) => {
-                // Hacky way for now!
-                // can probably use an attribute or something
-                // to differntiate errors...
-                // that will allow us to have more than one `Error` enum
-                // Which can add flexibility to the consumer
-                if d.identifier.0 == "Error" {
-                    ci.add_error_definition(d.convert(ci)?)
-                } else {
-                    ci.add_enum_definition(d.convert(ci)?)
+                if let Some(attrs) = &d.attributes {
+                    let attributes = Attributes::try_from(attrs)?;
+                    if attributes.contains_error_attr() {
+                        ci.add_error_definition(d.convert(ci)?)?;
+                    }
                 }
+                // We add the enum definition even though it might be an error
+                // in case consumers want to pass the error around...
+                ci.add_enum_definition(d.convert(ci)?)
             }
             weedle::Definition::Dictionary(d) => ci.add_record_definition(d.convert(ci)?),
             weedle::Definition::Interface(d) => ci.add_object_definition(d.convert(ci)?),
             _ => bail!("don't know how to deal with {:?}", self),
         }
+    }
+}
+
+/// Abstraction around a Vec<Attribute>. Used to define conversions between a
+/// weedle list of attributes and itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Attributes(Vec<Attribute>);
+
+impl Attributes {
+    fn contains_error_attr(&self) -> bool {
+        self.0.iter().find(|attr| attr.is_error()).is_some()
+    }
+
+    fn get_throws_err(&self) -> Option<&str> {
+        self.0.iter().find_map(|attr| match attr {
+            // This will hopefully return a helpful compilation error
+            // if the error is not defined.
+            Attribute::Throws(inner) => Some(inner.as_ref()),
+            _ => None,
+        })
+    }
+}
+
+impl TryFrom<&weedle::attribute::ExtendedAttributeList<'_>> for Attributes {
+    type Error = anyhow::Error;
+    fn try_from(
+        weedle_attributes: &weedle::attribute::ExtendedAttributeList,
+    ) -> Result<Self, Self::Error> {
+        // TODO: Error out on duplicate attributes
+        weedle_attributes
+            .body
+            .list
+            .iter()
+            .map(|attr| Attribute::try_from(attr))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|attrs| Attributes(attrs))
     }
 }
 
@@ -487,13 +526,17 @@ impl APIConverter<Argument> for weedle::argument::SingleArgument<'_> {
     }
 }
 
-impl APIConverter<Error> for weedle::common::Identifier<'_> {
-    fn convert(&self, ci: &ComponentInterface) -> Result<Error> {
+impl APIConverter<Error> for weedle::EnumDefinition<'_> {
+    fn convert(&self, _ci: &ComponentInterface) -> Result<Error> {
         Ok(Error {
-            name: self.0.to_string(),
-            type_: ci
-                .get_type_definition(self.0)
-                .ok_or_else(|| anyhow::format_err!("Errors must be typed"))?,
+            name: self.identifier.0.to_string(),
+            values: self
+                .values
+                .body
+                .list
+                .iter()
+                .map(|v| v.0.to_string())
+                .collect(),
         })
     }
 }
@@ -517,9 +560,6 @@ impl Enum {
 
 impl APIConverter<Enum> for weedle::EnumDefinition<'_> {
     fn convert(&self, _ci: &ComponentInterface) -> Result<Enum> {
-        if self.attributes.is_some() {
-            bail!("enum attributes are not supported yet");
-        }
         Ok(Enum {
             name: self.identifier.0.to_string(),
             values: self
@@ -530,6 +570,59 @@ impl APIConverter<Enum> for weedle::EnumDefinition<'_> {
                 .map(|v| v.0.to_string())
                 .collect(),
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Attribute {
+    Throws(String),
+    Error,
+}
+
+impl Attribute {
+    fn is_error(&self) -> bool {
+        if let Attribute::Error = self {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl<'a> TryFrom<&weedle::attribute::ExtendedAttribute<'_>> for Attribute {
+    type Error = anyhow::Error;
+    fn try_from(
+        weedle_attribute: &weedle::attribute::ExtendedAttribute,
+    ) -> Result<Self, <Attribute as TryFrom<&'a weedle::attribute::ExtendedAttribute<'a>>>::Error>
+    {
+        match weedle_attribute {
+            weedle::attribute::ExtendedAttribute::Ident(identity) => {
+                if identity.lhs_identifier.0 == "Throws" {
+                    Ok(Attribute::Throws(match identity.rhs {
+                        weedle::attribute::IdentifierOrString::Identifier(identifier) => {
+                            identifier.0.to_string()
+                        }
+                        weedle::attribute::IdentifierOrString::String(str_lit) => {
+                            str_lit.0.to_string()
+                        }
+                    }))
+                } else {
+                    anyhow::bail!(
+                        "Attribute identity Identifier not supported: {:?}",
+                        identity.lhs_identifier.0
+                    )
+                }
+            }
+            weedle::attribute::ExtendedAttribute::NoArgs(identity) => {
+                let identity_str = (identity.0).0.to_string();
+                if identity_str == "Error" {
+                    Ok(Attribute::Error)
+                } else {
+                    anyhow::bail!("Attribute not supported: {:?}", identity_str)
+                }
+            }
+            _ => anyhow::bail!("Attribute not supported: {:?}", weedle_attribute),
+        }
     }
 }
 
@@ -617,7 +710,17 @@ impl Constructor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Error {
     name: String,
-    type_: TypeReference,
+    values: Vec<String>,
+}
+
+impl Error {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn values(&self) -> Vec<&str> {
+        self.values.iter().map(|v| v.as_str()).collect()
+    }
 }
 
 // Represents an instance method for an object type.
@@ -630,7 +733,7 @@ pub struct Method {
     return_type: Option<TypeReference>,
     arguments: Vec<Argument>,
     ffi_func: FFIFunction,
-    throws: Option<Error>,
+    attributes: Attributes,
 }
 
 impl Method {
@@ -659,8 +762,8 @@ impl Method {
         }
     }
 
-    pub fn error(&self) -> &Option<Error> {
-        &self.throws
+    pub fn throws(&self) -> Option<&str> {
+        self.attributes.get_throws_err()
     }
 
     fn derive_ffi_func(&mut self, ci_prefix: &str, obj_prefix: &str) -> Result<()> {
@@ -742,47 +845,11 @@ impl APIConverter<Method> for weedle::interface::OperationInterfaceMember<'_> {
                 weedle::types::ReturnType::Type(t) => Some(t.resolve_type_definition(ci)?),
             },
             ffi_func: Default::default(),
-            throws: match &self.attributes {
-                Some(attr) => attr.body.list.find_throws(ci)?,
-                None => None,
+            attributes: match &self.attributes {
+                Some(attr) => Attributes::try_from(attr)?,
+                None => Attributes(Vec::new()),
             },
         })
-    }
-}
-
-trait FindThrows {
-    fn find_throws(&self, ci: &ComponentInterface) -> Result<Option<Error>>;
-}
-
-impl<U: FindThrows> FindThrows for Vec<U> {
-    fn find_throws(&self, ci: &ComponentInterface) -> Result<Option<Error>> {
-        for v in self {
-            let throws = v.find_throws(ci)?;
-            if throws.is_some() {
-                return Ok(throws);
-            }
-        }
-        Ok(None)
-    }
-}
-
-impl FindThrows for weedle::attribute::ExtendedAttribute<'_> {
-    fn find_throws(&self, ci: &ComponentInterface) -> Result<Option<Error>> {
-        match self {
-            Self::Ident(inner) => {
-                if inner.lhs_identifier.0 == "Throws" {
-                    match inner.rhs {
-                        weedle::attribute::IdentifierOrString::Identifier(inner) => {
-                            Ok(Some(inner.convert(ci)?))
-                        }
-                        _ => Ok(None),
-                    }
-                } else {
-                    Ok(None)
-                }
-            }
-            _ => Ok(None),
-        }
     }
 }
 

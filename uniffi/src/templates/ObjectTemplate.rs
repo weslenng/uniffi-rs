@@ -33,11 +33,13 @@ lazy_static::lazy_static! {
 {% endfor %}
 
 {%- for meth in obj.methods() %}
-    #[no_mangle]
+
+{% match meth.throws() %}
+    {% when Some with (e) %} 
+#[no_mangle]
     pub extern "C" fn {{ meth.ffi_func().name() }}(
-        {%- call rs::arg_list_rs_decl(meth.ffi_func().arguments()) %}) -> {% match meth.ffi_func().return_type() %}{% when Some with (return_type) %}{{ return_type|ret_type_c }}{% else %}(){% endmatch %} {
+        {%- call rs::arg_list_rs_decl(meth.ffi_func().arguments()), err: &mut ffi_support::ExternError, %}) -> {% match meth.ffi_func().return_type() %}{% when Some with (return_type) %}{{ return_type|ret_type_c }}{% else %}(){% endmatch %} {
         log::debug!("{{ meth.ffi_func().name() }}");
-        let mut err: ffi_support::ExternError = Default::default(); // XXX TODO: error handling!
         // If the method does not have the same signature as declared in the IDL, then
         // this attempt to call it will fail with a (somewhat) helpful compiler error.
         UNIFFI_HANDLE_MAP_{{ obj.name()|upper }}.{% match meth.error() %}{% when Some with (e) %}call_with_result_mut{% else %}call_with_output_mut{% endmatch %}(&mut err, {{ meth.first_argument().name() }}, |obj| {% match meth.error() %}{% when Some with (e) %}-> Result<{% match meth.ffi_func().return_type() %}{% when Some with (return_type) %}{{ return_type|ret_type_c }}{% else %}(){% endmatch %}>{% else %}{% endmatch %}{
@@ -45,5 +47,6 @@ lazy_static::lazy_static! {
             {% match meth.error() %}{% when Some with (e) %}Ok({% else %}{% endmatch %}{% match meth.return_type() %}{% when Some with (return_type) %}{{ "_retval"|lower_rs(return_type) }}{% else %}_retval{% endmatch %}{% match meth.error() %}{% when Some with (e) %}){% else %}{% endmatch%}
         })
     }
+{% endmatch %}
 {% endfor %}
 

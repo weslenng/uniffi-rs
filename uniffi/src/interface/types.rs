@@ -41,6 +41,7 @@ pub enum TypeReference {
     Object(String),
     Record(String),
     Enum(String),
+    Error(String),
     Optional(Box<TypeReference>),
     Sequence(Box<TypeReference>),
 }
