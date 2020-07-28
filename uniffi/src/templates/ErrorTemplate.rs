@@ -1,3 +1,11 @@
+
+#[derive(Debug, Clone, thiserror::Error)]
+enum GenericRustError {
+    #[error("Unknown error")]
+    UnknownError    
+}
+
+{% for e in ci.iter_error_definitions() %}
 {#
     // For each error declared in the IDL, using the [Error] attribute, we assume the caller as provided a corresponding
     // rust Error enum with the same name. We provide the traits for sending it across the FFI, which will fail to
@@ -19,3 +27,4 @@ impl From<{{e.name()}}> for ffi_support::ExternError {
         }
     }
 }
+{% endfor %}

@@ -2,7 +2,7 @@
 class {{ obj.name()|class_name_kt }}(handle: Long) {
     private var handle: AtomicLong = AtomicLong(handle)
     {%- for cons in obj.constructors() %}
-    constructor({% call kt::arg_list_decl(cons.arguments()) -%}) :
+    constructor({% call kt::arg_list_decl(cons) -%}) :
         this({% call kt::to_rs_call(cons) %})
     {%- endfor %}
 

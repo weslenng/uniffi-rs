@@ -59,6 +59,8 @@ pub mod types;
 pub use types::TypeReference;
 use types::TypeResolver;
 
+const GENERIC_RUST_ERROR: &str = "GenericRustError";
+
 /// The main public interface for this module, representing the complete details of an interface exposed
 /// by a rust component and the details of consuming it via an extern-C FFI layer.
 ///
@@ -97,6 +99,10 @@ impl<'ci> ComponentInterface {
         }
         // Now that the high-level API is settled, we can derive the low-level FFI.
         ci.derive_ffi_funcs()?;
+        ci.errors.push(Error {
+            name: GENERIC_RUST_ERROR.to_string(),
+            values: vec!["UnknownError".to_string()],
+        });
         Ok(ci)
     }
 
@@ -151,6 +157,7 @@ impl<'ci> ComponentInterface {
                 default: None,
             }],
             return_type: Some(TypeReference::Bytes),
+            error: None,
         }
     }
 
@@ -164,6 +171,7 @@ impl<'ci> ComponentInterface {
                 default: None,
             }],
             return_type: None,
+            error: None,
         }
     }
 
@@ -177,6 +185,7 @@ impl<'ci> ComponentInterface {
                 default: None,
             }],
             return_type: None,
+            error: None,
         }
     }
 
@@ -230,34 +239,26 @@ impl<'ci> ComponentInterface {
     }
 
     fn add_enum_definition(&mut self, defn: Enum) -> Result<()> {
-        // XXX TODO: reject duplicates? there shouldn't be any thanks to type-finding pass.
         self.enums.push(defn);
         Ok(())
     }
 
     fn add_record_definition(&mut self, defn: Record) -> Result<()> {
-        // XXX TODO: reject duplicates? there shouldn't be any thanks to type-finding pass.
         self.records.push(defn);
         Ok(())
     }
 
     fn add_function_definition(&mut self, defn: Function) -> Result<()> {
-        // XXX TODO: reject duplicates.
         self.functions.push(defn);
         Ok(())
     }
 
     fn add_object_definition(&mut self, defn: Object) -> Result<()> {
-        // XXX TODO: reject duplicates? there shouldn't be any thanks to type-finding pass.
         self.objects.push(defn);
         Ok(())
     }
 
     fn add_error_definition(&mut self, defn: Error) -> Result<()> {
-        // TODO: Optimize this to do constant time lookups (a set of errors might work)
-        if self.errors.iter().find(|e| e.name == defn.name).is_some() {
-            anyhow::bail!("Two errors with the same name")
-        }
         self.errors.push(defn);
         Ok(())
     }
@@ -309,14 +310,13 @@ impl APIBuilder for weedle::Definition<'_> {
         match self {
             weedle::Definition::Namespace(d) => d.process(ci),
             weedle::Definition::Enum(d) => {
+                // We check if the enum represents an error...
                 if let Some(attrs) = &d.attributes {
                     let attributes = Attributes::try_from(attrs)?;
                     if attributes.contains_error_attr() {
-                        ci.add_error_definition(d.convert(ci)?)?;
+                        return ci.add_error_definition(d.convert(ci)?);
                     }
                 }
-                // We add the enum definition even though it might be an error
-                // in case consumers want to pass the error around...
                 ci.add_enum_definition(d.convert(ci)?)
             }
             weedle::Definition::Dictionary(d) => ci.add_record_definition(d.convert(ci)?),
@@ -329,10 +329,10 @@ impl APIBuilder for weedle::Definition<'_> {
 /// Abstraction around a Vec<Attribute>. Used to define conversions between a
 /// weedle list of attributes and itself.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct Attributes(Vec<Attribute>);
+pub struct Attributes(Vec<Attribute>);
 
 impl Attributes {
-    fn contains_error_attr(&self) -> bool {
+    pub fn contains_error_attr(&self) -> bool {
         self.0.iter().find(|attr| attr.is_error()).is_some()
     }
 
@@ -457,6 +457,7 @@ pub struct FFIFunction {
     name: String,
     arguments: Vec<Argument>,
     return_type: Option<TypeReference>,
+    error: Option<String>,
 }
 
 impl FFIFunction {
@@ -468,6 +469,18 @@ impl FFIFunction {
     }
     pub fn return_type(&self) -> Option<&TypeReference> {
         self.return_type.as_ref()
+    }
+
+    pub fn throws(&self) -> Option<String> {
+        self.error.clone()
+    }
+
+    pub fn has_error(&self) -> bool {
+        if let Some(_) = self.error {
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -589,12 +602,11 @@ impl Attribute {
     }
 }
 
-impl<'a> TryFrom<&weedle::attribute::ExtendedAttribute<'_>> for Attribute {
+impl TryFrom<&weedle::attribute::ExtendedAttribute<'_>> for Attribute {
     type Error = anyhow::Error;
     fn try_from(
         weedle_attribute: &weedle::attribute::ExtendedAttribute,
-    ) -> Result<Self, <Attribute as TryFrom<&'a weedle::attribute::ExtendedAttribute<'a>>>::Error>
-    {
+    ) -> Result<Self, anyhow::Error> {
         match weedle_attribute {
             weedle::attribute::ExtendedAttribute::Ident(identity) => {
                 if identity.lhs_identifier.0 == "Throws" {
@@ -703,11 +715,12 @@ impl Constructor {
         self.ffi_func.name.push_str(&self.name);
         self.ffi_func.arguments = self.arguments.clone();
         self.ffi_func.return_type = Some(TypeReference::Object(obj_prefix.to_string()));
+        self.ffi_func.error = Some(GENERIC_RUST_ERROR.to_string());
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Error {
     name: String,
     values: Vec<String>,
@@ -778,6 +791,11 @@ impl Method {
             .chain(self.arguments.iter().cloned())
             .collect();
         self.ffi_func.return_type = self.return_type.clone();
+        self.ffi_func.error = Some(
+            self.throws()
+                .map(ToString::to_string)
+                .unwrap_or(GENERIC_RUST_ERROR.to_string()),
+        );
         Ok(())
     }
 }
@@ -825,9 +843,6 @@ impl APIConverter<Constructor> for weedle::interface::ConstructorInterfaceMember
 
 impl APIConverter<Method> for weedle::interface::OperationInterfaceMember<'_> {
     fn convert(&self, ci: &ComponentInterface) -> Result<Method> {
-        // if self.attributes.is_some() {
-        //     bail!("no interface member attributes supported yet");
-        // }
         if self.special.is_some() {
             bail!("special operations not supported");
         }

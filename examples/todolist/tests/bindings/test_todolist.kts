@@ -1,6 +1,14 @@
 import uniffi.todolist.*
 
 val todo = TodoList()
+
+// This throws an exception:
+try {
+    todo.getLast()
+} catch (e: GetLastErrorException) {
+    // It's okay, we don't have any items yet!
+}
+
 todo.addItem("Write strings support")
 
 assert(todo.getLast() == "Write strings support")
@@ -21,3 +29,4 @@ assert(todo.getLast() == "Test Ünicode hàndling without an entry can't believe
 val entry2 = TodoEntry("Test Ünicode hàndling in an entry can't believe I didn't test this at first 🤣")
 todo.addEntry(entry2)
 assert(todo.getLastEntry().text == "Test Ünicode hàndling in an entry can't believe I didn't test this at first 🤣")
+

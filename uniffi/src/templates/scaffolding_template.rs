@@ -9,9 +9,7 @@ ffi_support::define_string_destructor!({{ ci.ffi_string_free().name() }});
 
 // We generate error mappings into ffi_support::ExternErrors
 // so that the errors can propagate through the FFI
-{% for e in ci.iter_error_definitions() %}
 {% include "ErrorTemplate.rs" %}
-{% endfor %}
 
 // For each enum declared in the IDL, we assume the caller as provided a corresponding
 // rust `enum`. We provide the traits for sending it across the FFI, which will fail to
