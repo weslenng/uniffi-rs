@@ -13,6 +13,10 @@ import uniffi_{{ ci.namespace() }}
 {% include "EnumTemplate.swift" %}
 {%- endfor -%}
 
+{% for e in ci.iter_error_definitions() %}
+{% include "ErrorTemplate.swift" %}
+{%- endfor -%}
+
 {%- for rec in ci.iter_record_definitions() %}
 {% include "RecordTemplate.swift" %}
 {% endfor %}
