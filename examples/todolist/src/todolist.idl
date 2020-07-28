@@ -1,6 +1,6 @@
 namespace todolist {
     [Throws=TodoError]
-    void create_todo_with(string todo);
+    TodoEntry create_entry_with(string todo);
 };
 
 dictionary TodoEntry {
@@ -9,7 +9,7 @@ dictionary TodoEntry {
 
 [Error]
 enum TodoError {
-    "TodoDoesNotExist", "EmptyTodoList", "DuplicateTodo"
+    "TodoDoesNotExist", "EmptyTodoList", "DuplicateTodo", "EmptyString"
 };
 
 interface TodoList {

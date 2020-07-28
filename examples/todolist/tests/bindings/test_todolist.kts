@@ -9,6 +9,12 @@ try {
     // It's okay, we don't have any items yet!
 }
 
+try {
+    createEntryWith("")
+} catch (e: TodoErrorException) {
+    // It's okay, the string was empty!
+}
+
 todo.addItem("Write strings support")
 
 assert(todo.getLast() == "Write strings support")
@@ -17,7 +23,7 @@ todo.addItem("Write tests for strings support")
 
 assert(todo.getLast() == "Write tests for strings support")
 
-val entry = TodoEntry("Write bindings for strings as record members")
+val entry = createEntryWith("Write bindings for strings as record members")
 
 todo.addEntry(entry)
 assert(todo.getLast() == "Write bindings for strings as record members")

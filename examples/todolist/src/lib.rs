@@ -15,11 +15,16 @@ enum TodoError {
     EmptyTodoList,
     #[error("That todo already exists!")]
     DuplicateTodo,
+    #[error("Empty String error!")]
+    EmptyString,
 }
 
-fn create_todo_with<S: Into<String>>(item: S) -> Result<()> {
-    let mut todo = TodoList::new();
-    todo.add_item(item)
+fn create_entry_with<S: Into<String>>(item: S) -> Result<TodoEntry> {
+    let text = item.into();
+    if text == "" {
+        return Err(TodoError::EmptyString);
+    }
+    Ok(TodoEntry { text })
 }
 
 type Result<T, E = TodoError> = std::result::Result<T, E>;
@@ -37,6 +42,9 @@ impl TodoList {
 
     fn add_item<S: Into<String>>(&mut self, item: S) -> Result<()> {
         let item = item.into();
+        if item == "" {
+            return Err(TodoError::EmptyString);
+        }
         if self.items.contains(&item) {
             return Err(TodoError::DuplicateTodo);
         }

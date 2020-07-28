@@ -16,5 +16,5 @@ pub extern "C" fn {{ func.ffi_func().name() }}(
         let _retval = {% call rs::to_rs_call(func) %};
         {% call macros::try_retval(func) %}
         Ok({% call macros::ret(func) %})
-    });
+    })
 }
