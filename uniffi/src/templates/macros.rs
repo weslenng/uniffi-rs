@@ -25,7 +25,20 @@
 -#}
 {%- macro arg_list_rs_decl(args) %}
     {%- for arg in args %}
-        {{- arg.name() }}: {{ arg.type_()|type_c -}}
-        {%- if !loop.last %}, {% endif %}
+        {{- arg.name() }}: {{ arg.type_()|type_c -}},
     {%- endfor %}
+    err: &mut ffi_support::ExternError,
 {%- endmacro -%}
+
+{% macro return_type_func(func) %}{% match func.ffi_func().return_type() %}{% when Some with (return_type) %}{{ return_type|ret_type_c }}{%- else -%}(){%- endmatch -%}{%- endmacro -%}
+
+{% macro return_err_type(func) %}{% match func.ffi_func().throws() %}{% when Some with (e) %}{{e}}{% else %}GenericRustError{% endmatch %}{% endmacro %}
+
+{% macro ret(func) %}{% match func.return_type() %}{% when Some with (return_type) %}{{ "_retval"|lower_rs(return_type) }}{% else %}_retval{% endmatch %}{% endmacro %}
+
+{% macro try_retval(func) %}
+{% match func.throws() %}{% when Some with (e) %}
+            let _retval = _retval?;
+{% else %}
+{% endmatch %}
+{% endmacro %}

@@ -5,7 +5,7 @@ val todo = TodoList()
 // This throws an exception:
 try {
     todo.getLast()
-} catch (e: GetLastErrorException) {
+} catch (e: TodoErrorException) {
     // It's okay, we don't have any items yet!
 }
 

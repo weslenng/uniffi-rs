@@ -404,6 +404,7 @@ pub struct Function {
     arguments: Vec<Argument>,
     return_type: Option<TypeReference>,
     ffi_func: FFIFunction,
+    attributes: Attributes,
 }
 
 impl Function {
@@ -420,12 +421,21 @@ impl Function {
         &self.ffi_func
     }
 
+    pub fn throws(&self) -> Option<&str> {
+        self.attributes.get_throws_err()
+    }
+
     fn derive_ffi_func(&mut self, ci_prefix: &str) -> Result<()> {
         self.ffi_func.name.push_str(ci_prefix);
         self.ffi_func.name.push_str("_");
         self.ffi_func.name.push_str(&self.name);
         self.ffi_func.arguments = self.arguments.clone();
         self.ffi_func.return_type = self.return_type.clone();
+        self.ffi_func.error = Some(
+            self.throws()
+                .map(ToString::to_string)
+                .unwrap_or(GENERIC_RUST_ERROR.to_string()),
+        );
         Ok(())
     }
 }
@@ -495,9 +505,6 @@ impl APIConverter<Function> for weedle::namespace::NamespaceMember<'_> {
 
 impl APIConverter<Function> for weedle::namespace::OperationNamespaceMember<'_> {
     fn convert(&self, ci: &ComponentInterface) -> Result<Function> {
-        if self.attributes.is_some() {
-            bail!("no interface member attributes supported yet");
-        }
         Ok(Function {
             name: match self.identifier {
                 None => bail!("anonymous functions are not supported {:?}", self),
@@ -509,6 +516,10 @@ impl APIConverter<Function> for weedle::namespace::OperationNamespaceMember<'_> 
             },
             arguments: self.args.body.list.convert(ci)?,
             ffi_func: Default::default(),
+            attributes: match &self.attributes {
+                Some(attr) => Attributes::try_from(attr)?,
+                None => Attributes(Vec::new()),
+            },
         })
     }
 }
@@ -692,6 +703,7 @@ pub struct Constructor {
     name: String,
     arguments: Vec<Argument>,
     ffi_func: FFIFunction,
+    attributes: Attributes,
 }
 
 impl Constructor {
@@ -707,6 +719,10 @@ impl Constructor {
         &self.ffi_func
     }
 
+    pub fn throws(&self) -> Option<&str> {
+        self.attributes.get_throws_err()
+    }
+
     fn derive_ffi_func(&mut self, ci_prefix: &str, obj_prefix: &str) -> Result<()> {
         self.ffi_func.name.push_str(ci_prefix);
         self.ffi_func.name.push_str("_");
@@ -715,7 +731,11 @@ impl Constructor {
         self.ffi_func.name.push_str(&self.name);
         self.ffi_func.arguments = self.arguments.clone();
         self.ffi_func.return_type = Some(TypeReference::Object(obj_prefix.to_string()));
-        self.ffi_func.error = Some(GENERIC_RUST_ERROR.to_string());
+        self.ffi_func.error = Some(
+            self.throws()
+                .map(ToString::to_string)
+                .unwrap_or(GENERIC_RUST_ERROR.to_string()),
+        );
         Ok(())
     }
 }
@@ -837,6 +857,10 @@ impl APIConverter<Constructor> for weedle::interface::ConstructorInterfaceMember
             name: String::from("new"), // TODO: get the name from an attribute maybe?
             arguments: self.args.body.list.convert(ci)?,
             ffi_func: Default::default(),
+            attributes: match &self.attributes {
+                Some(attr) => Attributes::try_from(attr)?,
+                None => Attributes(Vec::new()),
+            },
         })
     }
 }

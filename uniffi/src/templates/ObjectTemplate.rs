@@ -19,34 +19,32 @@ lazy_static::lazy_static! {
 {%- for cons in obj.constructors() %}
     #[no_mangle]
     pub extern "C" fn {{ cons.ffi_func().name() }}(
-        {%- call rs::arg_list_rs_decl(cons.ffi_func().arguments()) %}) -> u64 {
+        {%- call rs::arg_list_rs_decl(cons.ffi_func()) %}) -> u64 {
         log::debug!("{{ cons.ffi_func().name() }}");
-        let mut err: ffi_support::ExternError = Default::default(); // XXX TODO: error handling!
         // If the constructor does not have the same signature as declared in the IDL, then
         // this attempt to call it will fail with a (somewhat) helpful compiler error.
-        let _handle = UNIFFI_HANDLE_MAP_{{ obj.name()|upper }}.insert_with_output(&mut err, || {
-            let obj = {{ obj.name() }}::{% call rs::to_rs_call(cons) %};
-            obj
+        let _handle = UNIFFI_HANDLE_MAP_{{ obj.name()|upper }}.insert_with_result(err, || -> Result<{{obj.name()}}, {% call rs::return_err_type(cons) %}> {
+            let _retval = {{ obj.name() }}::{% call rs::to_rs_call(cons) %};
+            {% call rs::try_retval(cons) %}
+            Ok(_retval)
         });
         _handle
     }
 {% endfor %}
 
 {%- for meth in obj.methods() %}
-
-{% match meth.throws() %}
-    {% when Some with (e) %} 
 #[no_mangle]
     pub extern "C" fn {{ meth.ffi_func().name() }}(
-        {%- call rs::arg_list_rs_decl(meth.ffi_func().arguments()), err: &mut ffi_support::ExternError, %}) -> {% match meth.ffi_func().return_type() %}{% when Some with (return_type) %}{{ return_type|ret_type_c }}{% else %}(){% endmatch %} {
+        {%- call rs::arg_list_rs_decl(meth.ffi_func()) %}
+    ) -> {% call rs::return_type_func(meth) %} {
         log::debug!("{{ meth.ffi_func().name() }}");
         // If the method does not have the same signature as declared in the IDL, then
         // this attempt to call it will fail with a (somewhat) helpful compiler error.
-        UNIFFI_HANDLE_MAP_{{ obj.name()|upper }}.{% match meth.error() %}{% when Some with (e) %}call_with_result_mut{% else %}call_with_output_mut{% endmatch %}(&mut err, {{ meth.first_argument().name() }}, |obj| {% match meth.error() %}{% when Some with (e) %}-> Result<{% match meth.ffi_func().return_type() %}{% when Some with (return_type) %}{{ return_type|ret_type_c }}{% else %}(){% endmatch %}>{% else %}{% endmatch %}{
-            let _retval = {{ obj.name() }}::{%- call rs::to_rs_call_with_prefix("obj", meth) -%}{% match meth.error() %}{% when Some with (e) %}?{% else %}{% endmatch %};
-            {% match meth.error() %}{% when Some with (e) %}Ok({% else %}{% endmatch %}{% match meth.return_type() %}{% when Some with (return_type) %}{{ "_retval"|lower_rs(return_type) }}{% else %}_retval{% endmatch %}{% match meth.error() %}{% when Some with (e) %}){% else %}{% endmatch%}
+        UNIFFI_HANDLE_MAP_{{ obj.name()|upper }}.call_with_result_mut(err, {{ meth.first_argument().name() }}, |obj| -> Result<{% call rs::return_type_func(meth) %}, {% call rs::return_err_type(meth) %}> {
+            let _retval = {{ obj.name() }}::{%- call rs::to_rs_call_with_prefix("obj", meth) -%};
+            {% call macros::try_retval(meth) %}
+            Ok({% call macros::ret(meth) %})
         })
     }
-{% endmatch %}
 {% endfor %}
 

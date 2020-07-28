@@ -8,20 +8,21 @@ struct TodoEntry {
 }
 
 #[derive(Debug, thiserror::Error)]
-enum AddItemError {
-    #[error("Error came from the network")]
-    NetworkError,
-    #[error("Error doing a type conversion")]
-    TypeError,
+enum TodoError {
+    #[error("The todo does not exist!")]
+    TodoDoesNotExist,
+    #[error("The todolist is empty!")]
+    EmptyTodoList,
+    #[error("That todo already exists!")]
+    DuplicateTodo,
 }
 
-#[derive(Debug, thiserror::Error)]
-enum GetLastError {
-    #[error("No todo error!")]
-    NoTodoError,
-    #[error("Unknown error, whoops")]
-    UnknownError,
+fn create_todo_with<S: Into<String>>(item: S) -> Result<()> {
+    let mut todo = TodoList::new();
+    todo.add_item(item)
 }
+
+type Result<T, E = TodoError> = std::result::Result<T, E>;
 
 // I am a simple Todolist
 #[derive(Debug, Clone)]
@@ -34,26 +35,47 @@ impl TodoList {
         Self { items: Vec::new() }
     }
 
-    fn add_item<S: Into<String>>(&mut self, item: S) -> Result<(), AddItemError> {
+    fn add_item<S: Into<String>>(&mut self, item: S) -> Result<()> {
+        let item = item.into();
+        if self.items.contains(&item) {
+            return Err(TodoError::DuplicateTodo);
+        }
         self.items.push(item.into());
         Ok(())
     }
 
-    fn get_last(&self) -> Result<String, GetLastError> {
+    fn get_last(&self) -> Result<String> {
         self.items
             .last()
             .cloned()
-            .ok_or_else(|| GetLastError::NoTodoError)
+            .ok_or_else(|| TodoError::EmptyTodoList)
     }
 
-    fn add_entry(&mut self, entry: TodoEntry) {
-        self.items.push(entry.text)
+    fn get_first(&self) -> Result<String> {
+        self.items
+            .first()
+            .cloned()
+            .ok_or_else(|| TodoError::EmptyTodoList)
     }
 
-    fn get_last_entry(&self) -> TodoEntry {
-        TodoEntry {
-            text: self.items.last().cloned().unwrap(),
-        }
+    fn add_entry(&mut self, entry: TodoEntry) -> Result<()> {
+        self.add_item(entry.text)
+    }
+
+    fn get_last_entry(&self) -> Result<TodoEntry> {
+        let text = self.get_last()?;
+        Ok(TodoEntry { text })
+    }
+
+    fn clear_item<S: Into<String>>(&mut self, item: S) -> Result<()> {
+        let item = item.into();
+        let idx = self
+            .items
+            .iter()
+            .position(|s| s == &item)
+            .ok_or_else(|| TodoError::TodoDoesNotExist)?;
+        self.items.remove(idx);
+        Ok(())
     }
 }
 
