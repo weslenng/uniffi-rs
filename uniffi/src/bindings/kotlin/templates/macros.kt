@@ -6,26 +6,22 @@
 
 {%- macro to_rs_call(func) -%}
  rustCallWith{% match func.ffi_func().throws() %}{% when Some with (e) %}{{e}}{% else %}{% endmatch %} { e -> 
-    _UniFFILib.INSTANCE.{{ func.ffi_func().name() }}({% call _arg_list_rs_call(func.arguments()) -%})
+    _UniFFILib.INSTANCE.{{ func.ffi_func().name() }}({% call _arg_list_rs_call(func) -%}{% if func.arguments().len() > 0 %},{% endif %}e)
  }
 {%- endmacro -%}
 
 {%- macro to_rs_call_with_prefix(prefix, func) -%}
  rustCallWith{% match func.ffi_func().throws() %}{% when Some with (e) %}{{e}}{% else %}{% endmatch %} { e -> 
     _UniFFILib.INSTANCE.{{ func.ffi_func().name() }}(
-        {{- prefix }}{% if func.arguments().len() > 0 %}, {% call _arg_list_rs_call(func.arguments()) -%}{% endif -%}
+        {{- prefix }}, {% call _arg_list_rs_call(func) %}{% if func.arguments().len() > 0 %},{% endif %}e)
  }
-)
 {%- endmacro -%}
 
 
-//Note the `e` here references the `e` defined in the to_rs_call macros
-// And the need to match in name.
 {%- macro _arg_list_rs_call(func) %}
     {%- for arg in func.arguments() %}
         {{- arg.name()|lower_kt(arg.type_()) }}
-        {%- if !loop.last  && !func.has_error() %}, {% endif %}
-        {% match func.throws() %}{% when Some with (err) %}e{% else %}{% endmatch %}
+        {%- if !loop.last %}, {% endif %}
     {%- endfor %}
 {%- endmacro -%}
 
@@ -34,8 +30,8 @@
 // Note the var_name_kt and type_kt filters.
 -#}
 
-{% macro arg_list_decl(args) %}
-    {%- for arg in args -%}
+{% macro arg_list_decl(func) %}
+    {%- for arg in func.arguments() -%}
         {{ arg.name()|var_name_kt }}: {{ arg.type_()|type_kt -}}
         {%- if !loop.last %}, {% endif -%}
     {%- endfor %}
@@ -48,7 +44,7 @@
 {%- macro arg_list_rs_decl(func) %}
     {%- for arg in func.arguments() %}
         {{- arg.name() }}: {{ arg.type_()|type_c -}}
-        {%- if !loop.last && !func.has_error() %}, {% endif %}
-        {% match func.throws() %}{% when Some with (e) %}error: {{e}}.ByReference{% else %}{% endmatch %}
+        {%- if loop.last && !func.has_error() %}{% else %},{% endif %}
     {%- endfor %}
+    {% match func.throws() %}{% when Some with (e) %}error: {{e}}.ByReference{% else %}{% endmatch %}
 {%- endmacro -%}

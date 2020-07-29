@@ -5,20 +5,23 @@
 #}
 
 {%- macro to_rs_call(func) -%}
-try rustCallWith{% match cons.ffi_func().throws() %}{% when Some with (e) %}{{e}}{% else %}{% endmatch %} { err  in
-    {{ func.ffi_func().name() }}({% call _arg_list_rs_call(func.arguments()) -%}{% if func.arguments().len() > 0 %},{% endif %}err)
+try rustCallWith{% match func.ffi_func().throws() %}{% when Some with (e) %}{{e}}{% else %}{% endmatch %} { err  in
+    {{ func.ffi_func().name() }}({% call _arg_list_rs_call(func) -%}{% if func.arguments().len() > 0 %},{% endif %}err)
+}
 {%- endmacro -%}
 
 {%- macro to_rs_call_with_prefix(prefix, func) -%}
-try rustCallWith{% match cons.ffi_func().throws() %}{% when Some with (e) %}{{e}}{% else %}{% endmatch %} { err  in
+try rustCallWith{% match func.ffi_func().throws() %}{% when Some with (e) %}{{e}}{% else %}{% endmatch %} { err  in
     {{ func.ffi_func().name() }}(
-        {{- prefix }}{% if func.arguments().len() > 0 %}, {% call _arg_list_rs_call(func.arguments()) -%}{% endif -%}{% if func.arguments().len() > 0 %},{% endif %}err
-)
+        {{- prefix }}, {% call _arg_list_rs_call(func) -%}{% if func.arguments().len() > 0 %},{% endif %}err
+    )
+}
 {%- endmacro -%}
 
-{%- macro _arg_list_rs_call(args) %}
-    {%- for arg in args %}
-        {{- arg.name()|lower_swift(arg.type_()) }},
+{%- macro _arg_list_rs_call(func) %}
+    {%- for arg in func.arguments() %}
+        {{- arg.name()|lower_swift(arg.type_()) }}
+        {%- if !loop.last %}, {% endif -%}
     {%- endfor %}
 {%- endmacro -%}
 
@@ -27,8 +30,8 @@ try rustCallWith{% match cons.ffi_func().throws() %}{% when Some with (e) %}{{e}
 // Note the var_name_swift and decl_swift filters.
 -#}
 
-{% macro arg_list_decl(args) %}
-    {%- for arg in args -%}
+{% macro arg_list_decl(func) %}
+    {%- for arg in func.arguments() -%}
         {{ arg.name()|var_name_swift }}: {{ arg.type_()|decl_swift -}}
         {%- if !loop.last %}, {% endif -%}
     {%- endfor %}

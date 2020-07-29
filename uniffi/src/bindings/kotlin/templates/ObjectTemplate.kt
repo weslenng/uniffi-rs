@@ -12,13 +12,13 @@ class {{ obj.name()|class_name_kt }}(handle: Long) {
     {%- match meth.return_type() -%}
 
     {%- when Some with (return_type) -%}
-    fun {{ meth.name()|fn_name_kt }}({% call kt::arg_list_decl(meth.arguments()) %}): {{ return_type|type_kt }} {
+    fun {{ meth.name()|fn_name_kt }}({% call kt::arg_list_decl(meth) %}): {{ return_type|type_kt }} {
         val _retval = {% call kt::to_rs_call_with_prefix("this.handle.get()", meth) %}
         return {{ "_retval"|lift_kt(return_type) }}
     }
     
     {%- when None -%}
-    fun {{ meth.name()|fn_name_kt }}({% call kt::arg_list_decl(meth.arguments()) %}) =
+    fun {{ meth.name()|fn_name_kt }}({% call kt::arg_list_decl(meth) %}) =
         {% call kt::to_rs_call_with_prefix("this.handle.get()", meth) %}
     {% endmatch %}
     {% endfor %}

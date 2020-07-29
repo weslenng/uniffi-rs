@@ -29,7 +29,7 @@ typedef struct RustBuffer {
 
 {% for func in ci.iter_ffi_function_definitions() -%}
     {%- match func.return_type() -%}{%- when Some with (type_) %}{{ type_|ret_c }}{% when None %}void{% endmatch %} {{ func.name() }}(
-      {% call swift::arg_list_rs_decl(func.arguments()) %}
+      {% call swift::arg_list_rs_decl(func) %}
     );
 {% endfor -%}
 
